@@ -58,7 +58,6 @@ int main(int argc, const char* argv[] )
     result[count]='A';
 
     int n = strlen(result);
-    // printf("This length should be received %d \n",n);
     char sendi[60000];
     int send_index = 0;
     while(send_index < n){
