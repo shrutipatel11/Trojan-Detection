@@ -1,0 +1,373 @@
+import os
+import ast
+import time
+from multiprocessing import Pool, Process, Manager
+from subprocess import Popen, PIPE
+import socket
+import select
+import sys
+
+#------------------------Global Variables-------------------------------
+manager = Manager()
+tpc_results = manager.dict()
+hgc_results = manager.dict()
+processes = manager.list()
+verified = manager.list()
+cores = manager.list()
+report = manager.dict()
+
+argc = 1
+taskgraph = sys.argv[argc]
+argc+=1
+ncores = int(sys.argv[argc])
+argc+=1
+ips = []
+for i in range(ncores+1):
+    ips.append(sys.argv[argc])
+    argc+=1
+port= []
+for i in range(ncores+1):
+    port.append(int(sys.argv[argc]))
+    argc+=1
+output = sys.argv[argc]
+
+for _ in range(ncores):
+    cores.append(0)
+trojan_activated = 0
+processes.append(1)
+
+tasks = {}
+edges = []
+
+#---------------Initialise the sockets and connect----------------------
+s = [socket.socket() for i in range(ncores+1)]
+for sckt in s:
+    sckt.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+# port = [50011,20099,20999]
+client = [0]*len(s)
+addr = [0]*len(s)
+
+s[0].connect((ips[0], port[0]))
+client[0] = s[0]
+addr[0] = s[0]
+
+for i in range(1,len(s)):
+    s[i].bind((ips[i], port[i]))
+    print "Socket",i,"binded to",port[i]
+    s[i].listen(5)
+    print "Socket",i,"is listening"
+
+i=0
+count = 0
+timeout = 0.1
+while True:
+    ready_sockets, _, _ = select.select([s[i+1]], [], [], timeout)
+    if ready_sockets:
+        cl,ad = s[i+1].accept()
+        client[i+1] = cl
+        addr[i+1] = ad
+        print "Got connection from",addr[i+1]
+        count+=1
+        if count==len(s)-1:
+            break
+    else:
+        i=(i+1)%(len(s)-1)
+
+
+#---------------Find children of a node(task)----------------------
+def find_children(edge_list, parent):
+    time.sleep(1)
+    children = []
+    for element in edge_list:
+        if element[0] == parent:
+            children.append(element[1])
+    return children
+
+#-------------Find parents of a node(task)--------------------------
+def find_parents(edge_list, child):
+    time.sleep(1)
+    parents = []
+    for element in edge_list:
+        if element[1] == child:
+            parents.append(element[0])
+    return parents
+
+
+def schedule_process(processes, tpc_results, hgc_results, cores, edges, trojan_activated, start_time, report):
+    done = []
+    i=0
+    cpu = 0
+    while True:
+        #Find an idle core to schedule the process
+        while True:
+            if cores[i]==0:
+                cpu = i
+                break
+            else:
+                i=(i+1)%ncores
+
+        time.sleep(1)
+        if trojan_activated==0:
+            for p in processes:
+                if p in done:
+                    processes.remove(p)
+
+        if len(processes)==0:
+            continue
+
+        tid = processes[0]
+        done.append(tid)
+        tname = tasks[tid]
+        processes.remove(tid)
+        cores[cpu]=1
+
+        cmdarg = str(tid) + ' ' + tname + ' '
+        par = find_parents(edges,tid)
+        lp = len(par)
+        for k in range(lp):
+            if par[k] in tpc_results:
+                cmdarg += tpc_results[par[k]][:-1]
+            elif par[k] in hgc_results:
+                cmdarg += hgc_results[par[k]][:-1]
+            if k!=lp-1:
+                cmdarg+=','
+
+        print tname,"scheduled in cpu",cpu
+        cmdarg+='A'
+
+        if tid!=1 and len(cmdarg)<10:
+            continue
+
+        ans = round(time.time()-start_time,2)
+        get = report[tid]
+        report[tid] = [str(cpu), str(ans), 0]
+
+        if tname=='src':
+            cmdarg+=' A'    #Delimiter
+
+        l = 0
+        while l<len(cmdarg):
+            client[cpu+1].send(cmdarg[l:l+60000])
+            l = l + 60000
+
+        if tname=='sink':
+            return
+
+
+def hgc_comparator1(processes, tpc_results, hgc_results, cores, edges, tasks, trojan_activated):
+    timeout = 0.1  # in seconds
+    sink_received_from_3PC = 0
+    while True:
+        ready_sockets, _, _ = select.select([client[0]], [], [], timeout)
+        if ready_sockets:
+            data = ''
+            while True:
+                rec = client[0].recv(60000)
+                if len(rec)==0:
+                    break
+                data += rec
+                if 'A' in rec:
+                    break
+            if trojan_activated == 1:
+                continue
+
+            tuples = data.split('A')
+            for tup in tuples:
+                if len(tup)==0:
+                    break
+                id,name,result = tup.split(" ")
+                id = int(id)
+                result = result+'A'
+                if name=='sink':
+                    tpc_results[id] = result
+                    print "TPC ",name
+                    return
+                tpc_results[id] = result
+                print "TPC ",name
+
+                c = find_children(edges,id)
+                ancestors_executed = 0
+                for child in c:
+                    if child in verified:
+                        continue
+                    par = find_parents(edges,child)
+                    for parent in par:
+                        if parent not in tpc_results:
+                            ancestors_executed = 1
+                            break
+                    if ancestors_executed == 0:
+                        if child not in hgc_results and child not in processes:
+                            processes.append(child)
+
+                if id in hgc_results:
+                    if hgc_results[id] == result:     #If the results match mark the task as verified
+                        if name not in verified:
+                            verified.append(id)
+                        if len(verified) == len(tasks): #If all the tasks are verified return the verified result
+                            print len(tpc_results['sink'])
+                            return
+                    else:                               #If result does not match, then trojan activated
+                        print "Wrong result received in 3PC",name
+                        trojan_activated = 1            #Move to HGC only mode
+                        tpc_results.clear()
+                        not_verified = [id]           #Remove the not verified tasks and all its children from hgc_results
+                        processes = [id]
+                        while 1:
+                            if len(not_verified)==0:
+                                break
+                            ch = find_children(edges,not_verified[0])
+                            if not_verified[0] in hgc_results:
+                                del hgc_results[not_verified[0]]
+                            not_verified.extend(ch)
+                            not_verified.remove(not_verified[0])
+
+
+def hgc_comparator2(processes, tpc_results, hgc_results, cores, edges, tasks, trojan_activated, start_time, report):
+    timeout = 0.1  # in seconds
+    j=0
+    while True:
+        ready_sockets, _, _ = select.select([client[j+1]], [], [], timeout)
+        if ready_sockets:
+            data = ''
+            while True:
+                ready, _, _ = select.select([client[j+1]], [], [], timeout)
+                if ready:
+                    rec = client[j+1].recv(60000)
+                    data += rec
+                    if 'A' in rec:
+                        time.sleep(1)
+                        break
+            cores[j]=0
+            j=(j+1)%ncores
+            id,name,result = data.split(" ")
+            id = int(id)
+
+            ans = round(time.time()-start_time,2)
+            get = report[id]
+            report[id] = [get[0], get[1], str(ans)]
+
+            if name=='sink':
+                result = result[:-1]
+            hgc_results[id] = result
+
+            time.sleep(2)
+            c = find_children(edges,id)
+            ancestors_executed = 0
+            for child in c:
+                if child in verified:
+                    continue
+                par = find_parents(edges,child)
+                for parent in par:
+                    if parent not in tpc_results and parent not in hgc_results:
+                        ancestors_executed = 1
+                        break
+                if ancestors_executed == 0:
+                    if child not in processes:
+                        processes.append(child)
+
+            if trojan_activated == 1:
+                if id not in verified:
+                    verified.append(id)
+                    print "verified",verified
+                if len(verified)==len(tasks):
+                    print len(hgc_results[1])
+                    return
+            elif id in tpc_results:
+                if tpc_results[id] == result:     #If the results match mark the task as verified
+                    print name,"verified"
+                    if id not in verified:
+                        verified.append(id)
+                    if len(verified) == len(tasks): #If all the tasks are verified return the verified result
+                        print len(tpc_results[1])
+                        return
+                else:
+                    print "Wrong result received in HGC",name
+                    trojan_activated = 1
+                    tpc_results.clear()
+                    not_verified = [id]           #Remove the not verified tasks and all its children from hgc_results
+                    for tsk in processes:
+                        processes.remove(tsk)
+                    processes.append(id)
+                    while 1:
+                        if len(not_verified)==0:
+                            break
+                        val = not_verified[0]
+                        if val in verified:
+                            verified.remove(val)
+                        ch = find_children(edges,val)
+                        if val in hgc_results:
+                            del hgc_results[val]
+                        not_verified.extend(ch)
+                        not_verified.remove(val)
+                    print "processes",processes
+        else:
+            j=(j+1)%ncores
+
+
+def read_task_graph(report):
+    f = open(taskgraph,"r")
+    if f.mode=="r":
+        contents = f.readlines()
+
+        #store the graph nodes(tasks) and dependencies(edges) in the lists
+        for x in contents:
+            if x.find("TASK")!=-1:
+                start_index = 5
+                while True:
+                    if x[start_index]==' ':
+                        break
+                    start_index+=1
+                task_name = x[5:start_index]
+
+                start_index2 = start_index+4
+                while True:
+                    if x[start_index2]=='\n':
+                        break
+                    start_index2+=1
+                id = x[start_index+4:start_index2]
+                tasks[int(id)]=task_name  #add the task to the task list
+                report[int(id)]=[0,0,0]
+
+            elif x.find("ARC")!=-1:
+                tempindex = x.find("FROM")+5
+                start_index = tempindex
+                while True:
+                    if x[start_index]==' ':
+                        break
+                    start_index+=1
+                t1 = x[tempindex:start_index]          #first task of the edge
+
+                start_index2 = start_index+3
+                while True:
+                    if x[start_index2]=='\n':
+                        break
+                    start_index2+=1
+                t2 = x[start_index+3:start_index2]      #second task of the edge
+
+                edges.append([int(t1),int(t2)])    #add the edge to the edge list
+
+
+
+#--------------------------------------Main function------------------------------------------#
+
+# Read the task graph
+start_time = time.time()
+read_task_graph(report)
+time.sleep(2)
+p1 = Process(target = schedule_process, args=[processes, tpc_results, hgc_results, cores, edges, trojan_activated, start_time, report])
+p2 = Process(target = hgc_comparator1, args=[processes, tpc_results, hgc_results, cores, edges, tasks, trojan_activated])
+p3 = Process(target = hgc_comparator2, args=[processes, tpc_results, hgc_results, cores, edges, tasks, trojan_activated, start_time, report])
+p1.start()
+p3.start()
+p2.start()
+p1.join()
+p3.join()
+p2.join()
+
+print 'Time taken ', time.time() - start_time,"seconds"
+
+f= open(output,"w+")
+for key in report:
+    s = tasks[key]+'\t'+report[key][0]+'\t'+report[key][1]+'\t'+report[key][2]+'\n'
+    f.write(s)
+f.close()
