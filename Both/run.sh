@@ -1,4 +1,4 @@
-taskgraph="bench"
+taskgraph="graph1"
 n_3pc=1
 n_hgc=2
 ip_3pc_scheduler="127.0.0.1"
