@@ -1,4 +1,4 @@
-taskgraph="mbench"
+taskgraph="graph1"
 n_hgc=3
 ip_hgc_scheduler="127.0.0.1"
 ip_hgc_slaves=("127.0.0.1" "127.0.0.1" "127.0.0.1")
