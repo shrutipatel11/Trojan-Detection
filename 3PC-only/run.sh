@@ -1,4 +1,4 @@
-taskgraph="mbench"
+taskgraph="graph1"
 n_3pc=3
 ip_3pc_scheduler="127.0.0.1"
 ip_3pc_slaves=("127.0.0.1" "127.0.0.1" "127.0.0.1")
