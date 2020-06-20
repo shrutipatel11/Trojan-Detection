@@ -5,7 +5,8 @@
    
    AFTER CONNECTION:
    The initial input of the task graph is initialised in this benchmark. SRC is always the root of the task graph.
-   
+   Send the to input array to the slave along with the delimiter 'A'
+   FORMAT OF INPUT ARRAY : comma separated string of numbers with 'A' being the last character (Ex. 3,45,23,678,123,764A)   
 */
 
 #include <stdio.h>
