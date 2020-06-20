@@ -1,3 +1,16 @@
+
+/* USAGE:
+   The benchmark is executed as "./fir 198.2.34.12 9001" by the slave
+   argv[1] = IP address of the 3PC/HGC slave
+   argv[2] = Port number to bind the socket
+   
+   AFTER CONNECTION:
+   1. The array length is sent by the slave
+   2. The array contents are sent by the slave 
+      FORMAT OF CONTENTS: comma separated string of numbers (Ex. 3,45,23,678,123,764)
+   3. the delimiter 'A' is sent to mark the end of input.
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
