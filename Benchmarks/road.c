@@ -98,7 +98,7 @@ int main(int argc, const char* argv[] ){
 
   // printf("\nTask input received\n");
   // for(int i=0; i<len; i++) printf("%d ",inpCounter[i]);
-  // printf("\n\n");
+  // printf("\n");
 
   int i ;
   static int roadSpeed1 ;
