@@ -1,3 +1,13 @@
+/* USAGE:
+   The benchmark is executed as "./src 198.2.34.12 9001" by the slave
+   argv[1] = IP address of the 3PC/HGC slave
+   argv[2] = Port number to bind the socket
+   
+   AFTER CONNECTION:
+   The initial input of the task graph is initialised in this benchmark. SRC is always the root of the task graph.
+   
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
