@@ -4,10 +4,14 @@
    argv[2] = Port number to bind the socket
    
    AFTER CONNECTION:
-   1. The array length is sent by the slave
-   2. The array contents are sent by the slave 
+   1. The array length is received from the slave
+   2. The array contents are received from the slave 
       FORMAT OF CONTENTS: comma separated string of numbers (Ex. 3,45,23,678,123,764)
-   3. the delimiter 'A' is sent to mark the end of input.
+   3. the delimiter 'A' is received to mark the end of input.
+   
+   AFTER THE TASK IS EXECUTED:
+   1. Send the result of the task to the slave along with the delimiter 'A'
+      FORMAT OF RESULT : comma separated string of numbers with 'A' being the last character (Ex. 3,45,23,678,123,764A)
 */
 
 #include <stdio.h>
